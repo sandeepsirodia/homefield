@@ -1,10 +1,27 @@
-# homefield
+<h1 align="center">homefield</h1>
 
-**Benchmarks are away games. Test models on your home field.**
+<p align="center">
+  <em>Benchmarks are away games. Test models on your home field.</em>
+</p>
 
-SWE-bench says model A beats model B. On *your* codebase, with *your* conventions, *your* test setup, and *your* weird build? Nobody knows, until now.
+<p align="center">
+  <a href="https://github.com/sandeepsirodia/homefield/actions/workflows/ci.yml"><img src="https://github.com/sandeepsirodia/homefield/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/badge/dependencies-0-111111?style=flat-square" alt="Zero dependencies">
+  <img src="https://img.shields.io/badge/data-stays%20local-111111?style=flat-square" alt="Local-first">
+  <img src="https://img.shields.io/badge/license-MIT-111111?style=flat-square" alt="MIT">
+</p>
 
-homefield turns your repo's git history into a private benchmark. Every past commit that changed code **and** added tests becomes a task: *"here's the commit message, make the change."* The hidden tests from that commit grade the result. Then it ranks agents and models on solve rate, time, and cost per solved task.
+---
+
+A new model drops. The leaderboard says it's 6 points better. Your timeline says it's a game changer.
+
+You switch. And on *your* codebase, with its weird build, its legacy auth module and its tests that need a running Redis, it's… fine? Worse? You honestly can't tell, because you're comparing vibes.
+
+Public benchmarks measure public repos. Models have probably seen those repos. **None of them have seen yours.**
+
+**homefield turns your own git history into a private benchmark.** Every past commit where someone changed code *and* added a test becomes a task: here's the commit message, make the change. The tests from that commit, hidden until the end, decide who passed.
+
+## What you get
 
 ```console
 $ homefield mine --since 2026-06-01
@@ -14,7 +31,7 @@ $ homefield run --agent claude:opus --agent claude:sonnet --agent claude:haiku -
 $ homefield report --html report.html
 ```
 
-*Example report (illustrative numbers; run it on your repo for real ones):*
+*Illustrative numbers. Run it on your repo for real ones:*
 
 | Rank | Agent | Solved | Pass rate | Median time | Total cost | Cost / solve |
 |---|---|---|---|---|---|---|
@@ -22,58 +39,53 @@ $ homefield report --html report.html
 | 2 | `claude:sonnet` | 17/24 | 70.8% | 164s | $9.85 | $0.58 |
 | 3 | `claude:haiku` | 11/24 | 45.8% | 71s | $1.92 | $0.17 |
 
+A table like this is what you actually need to know. *Is the top model worth 3× the cost per solved task on our code?* Now you can answer that with data instead of a hunch.
+
 ## Install
 
 ```bash
 uv tool install git+https://github.com/sandeepsirodia/homefield   # or: pipx install git+https://…
 ```
 
-One Python file, zero dependencies. Needs `git` and whichever agent CLIs you want to compare.
+One Python file, zero dependencies. You need `git` and whichever agents you want to pit against each other.
 
-## How it works
+## Why the results are trustworthy
 
-**`homefield mine`** walks history (first-parent, no merges) and keeps a commit only if:
+**Every task is proven solvable, and proven to need work.** A commit only becomes a task if its new tests *fail* on the old code and *pass* on the real change. A task nobody could solve, or one that needs no change at all, never makes the list.
 
-1. it touches source files **and** test files (docs/changelog-only commits are ignored),
-2. the new tests **fail** on the parent commit (negative control, so the task actually requires work), and
-3. the new tests **pass** on the commit itself (positive control, so the task is solvable).
+**The agent can't peek at the answer.** The obvious approach, a git worktree, shares your object store, so a curious agent could run `git log --all` and read the real fix. homefield instead gives each agent a fresh one-commit snapshot built with `git archive`. The future isn't hidden; it simply isn't there. A test in this repo checks exactly that.
 
-`--since` keeps only recent commits, ideally after your models' training cutoff, so they can't have memorized the answer.
+**It dodges memorization.** `--since` keeps only commits newer than your models' training data.
 
-**`homefield run`** gives each agent a clean snapshot of the parent commit and the commit message as the prompt. The snapshot is a fresh one-commit repo built with `git archive`, **not a worktree**. A worktree shares your object store, and the agent could `git log --all` its way to the answer. Afterwards the hidden tests are dropped in and run. Each attempt has a time limit (`--timeout`) and, for Claude, a spend cap (`--budget` → `--max-budget-usd`).
+**Nothing leaves your machine.** Tasks, hidden tests and results live in `.homefield/`. Only the agents' own API calls go out.
 
-**`homefield report`** prints a Markdown leaderboard + per-task grid; `--html` writes a single-file report you can share.
+## Bring any agent
 
-## Agents
-
-| `--agent` | What runs |
+| `--agent` | Runs |
 |---|---|
-| `claude` / `claude:<model>` | Claude Code headless (`claude -p`), with cost and tokens parsed from its JSON output |
-| `name=cmd:<shell command>` | Anything. The prompt is in `$HOMEFIELD_PROMPT`, cwd is the task snapshot |
+| `claude` · `claude:sonnet` · `claude:opus` | Claude Code headless, with cost and tokens read from its output |
+| `name=cmd:<any shell command>` | Anything. The prompt is in `$HOMEFIELD_PROMPT` |
 
 ```bash
-# Codex CLI, Gemini CLI, aider, your own agent (untested recipes: check flags against your CLI version):
+# untested recipes, so check the flags against your CLI version:
 --agent 'codex=cmd:codex exec --full-auto "$HOMEFIELD_PROMPT"'
 --agent 'gemini=cmd:gemini -p "$HOMEFIELD_PROMPT" --yolo'
 --agent 'aider=cmd:aider --yes --message "$HOMEFIELD_PROMPT"'
 ```
 
-If a `cmd:` agent prints a JSON object like `{"total_cost_usd": 0.42, "usage": {...}}` as its last line, homefield records the cost.
+### Safe by default
 
-### Safety
+The Claude adapter is **edit-only** out of the box (`--permission-mode acceptEdits`): it can change files but not run commands. Add `--allow-shell` to let it run tests too. That usually raises solve rates, but only do it inside a container or VM.
 
-The built-in Claude adapter runs **edit-only** by default (`--permission-mode acceptEdits`): it can change files but not run commands. `--allow-shell` gives it full permissions (`--dangerously-skip-permissions`), which usually raises solve rates because it can run tests. Only use that inside a container or VM. The snapshot is a temp directory, but a shell-enabled agent can reach anything your user can.
-
-## Everything stays local
-
-Tasks, hidden tests, and results live in `.homefield/` (add it to `.gitignore`). Nothing is uploaded; only the agents' own API calls leave your machine.
-
-## Development
+<details>
+<summary><b>Development</b></summary>
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-Tests map to the expectations in [SPEC.md](SPEC.md). They build a fixture repo with a scripted history and use shell-command fake agents, so no API calls and no cost. Includes a check that the agent cannot see the hidden tests, even through git history.
+Tests map to [SPEC.md](SPEC.md). They build a fixture repo with a scripted history and use shell-command fake agents, so there are no API calls and no cost. I mutation-tested it: deliberately leaking the hidden tests to the agent makes the suite fail, as it should.
 
-MIT © Sandeep Sirodia
+</details>
+
+<p align="center"><sub>MIT © Sandeep Sirodia · Ran it on your repo and got a surprising winner? Open an issue and tell me. A ⭐ helps too.</sub></p>
