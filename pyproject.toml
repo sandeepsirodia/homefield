@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "homefield"
+version = "0.1.0"
+description = "Benchmarks are away games. Rank coding agents on your own repo's git history."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Sandeep Sirodia" }]
+requires-python = ">=3.9"
+keywords = ["benchmark", "ai-agents", "claude-code", "codex", "evals", "llm"]
+classifiers = ["Programming Language :: Python :: 3", "Topic :: Software Development :: Testing", "Environment :: Console"]
+
+[project.urls]
+Homepage = "https://github.com/sandeepsirodia/homefield"
+
+[project.scripts]
+homefield = "homefield:main"
+
+[tool.setuptools]
+py-modules = ["homefield"]
