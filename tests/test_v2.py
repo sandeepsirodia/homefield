@@ -107,6 +107,19 @@ class TestAblation(unittest.TestCase):
         self.assertIn("That is not proof they do nothing", md)
 
 
+class TestSafety(unittest.TestCase):
+    def test_safe_members_rejects_escapes(self):
+        import tarfile
+        d = tempfile.mkdtemp()
+        path = os.path.join(d, "x.tar")
+        with tarfile.open(path, "w") as t:
+            info = tarfile.TarInfo("../evil.txt")
+            info.size = 0
+            t.addfile(info, io.BytesIO(b""))
+        with tarfile.open(path) as t, self.assertRaises(RuntimeError):
+            list(hf.safe_members(t, os.path.join(d, "out")))
+
+
 class TestMechanics(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

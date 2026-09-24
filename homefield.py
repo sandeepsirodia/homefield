@@ -87,14 +87,26 @@ def export(repo, commit, dest):
     with tarfile.open(tmp_tar) as t:
         try:
             t.extractall(dest, filter="data")
-        except TypeError:  # Python < 3.12
-            t.extractall(dest)
+        except TypeError:  # Python < 3.12 has no extraction filters: check members ourselves
+            t.extractall(dest, members=safe_members(t, dest))
     os.unlink(tmp_tar)
     git(dest, "init", "-q")
     git(dest, "add", "-A")
     git(dest, "-c", "user.name=homefield", "-c", "user.email=homefield@localhost", "-c", "commit.gpgsign=false",
         "-c", "core.hooksPath=/dev/null",
         "commit", "-qm", "baseline", "--allow-empty")
+
+
+def safe_members(tar, dest):
+    """Reject absolute paths, '..' and links that point outside dest (what filter='data' does on 3.12+)."""
+    root = os.path.realpath(dest)
+    for m in tar.getmembers():
+        target = os.path.realpath(os.path.join(root, m.name))
+        link_ok = not (m.issym() or m.islnk()) or os.path.realpath(
+            os.path.join(os.path.dirname(target), m.linkname)).startswith(root + os.sep)
+        if not target.startswith(root + os.sep) or not link_ok or m.isdev():
+            raise RuntimeError("refusing unsafe path in snapshot: %s" % m.name)
+        yield m
 
 
 def apply_files(repo, commit, dest, files):
