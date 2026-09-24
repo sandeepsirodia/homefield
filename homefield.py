@@ -141,7 +141,11 @@ def detect_test_cmd(repo):
 def run_tests(workdir, test_cmd, test_files, timeout):
     files = " ".join(shlex.quote(p) for _, p in test_files if _ != "D")
     cmd = test_cmd.replace("{files}", files)
-    code, _, _ = run_capped(cmd, workdir, timeout, shell=True)
+    # Import the snapshot's code, not an editable install of the original checkout (same trap teeth hit).
+    paths = [workdir] + ([os.path.join(workdir, "src")] if os.path.isdir(os.path.join(workdir, "src")) else [])
+    env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1",
+               PYTHONPATH=os.pathsep.join(paths + ([os.environ["PYTHONPATH"]] if os.environ.get("PYTHONPATH") else [])))
+    code, _, _ = run_capped(cmd, workdir, timeout, env=env, shell=True)
     return "timeout" if code is None else "pass" if code == 0 else "fail"
 
 
