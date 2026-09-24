@@ -52,7 +52,7 @@ But look again: 19/24 vs 17/24. **Is that a real difference, or a coin flip?** v
 - `claude:sonnet` vs `claude:opus`: no detectable difference (Δ=-8%, 95% CI -21%…+4%, p=0.31) · paired permutation over tasks
 ```
 
-Every comparison now comes with a paired test, a confidence interval and a plain-English verdict. I measured why that matters by simulating 500 comparisons of two **identical** agents on 30 tasks:
+Every comparison now comes with a paired test, a confidence interval and a plain-English verdict. With one attempt per task it's an exact McNemar test on which tasks each agent solved. With several attempts (the default is 3) it's a paired permutation test that treats *tasks* as the unit. The report names the test it used. I measured why that matters by simulating 500 comparisons of two **identical** agents on 30 tasks:
 
 | Rule for "B is better" | How often it crowns a winner between identical agents |
 |---|---|
