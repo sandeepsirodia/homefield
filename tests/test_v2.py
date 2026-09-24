@@ -107,6 +107,61 @@ class TestAblation(unittest.TestCase):
         self.assertIn("That is not proof they do nothing", md)
 
 
+class TestOutagesAreNotFailures(unittest.TestCase):
+    """Regression from the first real run: a session limit made every attempt 'fail' in 3 seconds,
+    which would have published a leaderboard blaming the models for an outage."""
+
+    @classmethod
+    def setUpClass(cls):
+        path = os.path.join(tempfile.mkdtemp(), "limited.py")
+        with open(path, "w") as f:
+            f.write("import json, sys\nprint(json.dumps({'is_error': True, "
+                    "'result': 'You have hit your session limit, resets 5:10pm'}))\nsys.exit(1)\n")
+        cls.LIMIT = "%s %s" % (PY, shlex.quote(path))
+
+    def _repo(self):
+        repo = make_fixture()
+        cli(repo, "mine", "--test-cmd", TEST_CMD, "--stability-runs", "1")
+        return repo
+
+    def test_rate_limit_stops_the_run_and_scores_nothing(self):
+        repo = self._repo()
+        code, out = cli(repo, "run", "--agent", "limited=cmd:" + self.LIMIT, "--attempts", "1", "--run-id", "lim")
+        self.assertEqual(code, 3)
+        self.assertIn("Stopped", out)
+        self.assertIn("--resume", out)
+        self.assertEqual(hf.load_results(repo, "lim"), [])
+
+    def test_other_agent_errors_are_excluded_not_counted_as_failures(self):
+        repo = self._repo()
+        missing = "ghost=cmd:definitely-not-a-command-xyz"
+        code, out = cli(repo, "run", "--agent", missing, "--agent", solver(["sub", "mul", "div"]), "--attempts", "1",
+                        "--run-id", "mixed")
+        results = hf.load_results(repo, "mixed")
+        self.assertEqual({r["status"] for r in results if r["agent"] == "ghost"}, {"agent-error"})
+        rows, _, _ = hf.summarize(results)
+        self.assertEqual([r["agent"] for r in rows], ["solver"])         # ghost gets no leaderboard row
+        md = hf.markdown(results)
+        self.assertIn("never ran", md)
+        self.assertIn("`ghost` ×3", md)
+        self.assertNotIn("| `ghost` |", md)
+
+    def test_resume_retries_errored_attempts(self):
+        repo = self._repo()
+        cli(repo, "run", "--agent", "ghost=cmd:definitely-not-a-command-xyz", "--attempts", "1", "--run-id", "retry")
+        code, out = cli(repo, "run", "--agent", "ghost=cmd:definitely-not-a-command-xyz", "--attempts", "1",
+                        "--run-id", "retry", "--resume")
+        self.assertNotIn("skipped", out)                                  # nothing counted as finished
+
+    def test_ablation_refuses_to_report_after_an_outage(self):
+        repo = self._repo()
+        with open(os.path.join(repo, "CLAUDE.md"), "w") as f:
+            f.write("- rule one\n- rule two\n")
+        code, out = cli(repo, "ablate", "CLAUDE.md", "--agent", "limited=cmd:" + self.LIMIT, "--attempts", "1", "--yes")
+        self.assertEqual(code, 3)
+        self.assertIn("nothing was reported", out)
+
+
 class TestSafety(unittest.TestCase):
     def test_safe_members_rejects_escapes(self):
         import tarfile

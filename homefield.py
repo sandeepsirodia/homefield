@@ -230,6 +230,15 @@ def mine(repo, test_cmd, since=None, limit=50, max_files=10, test_timeout=300, l
 
 # ------------------------------------------------------------------ agents
 
+# An agent that never ran (limit hit, CLI missing, API down) says nothing about the model's ability.
+# Scoring it as "failed" would turn an outage into a leaderboard. Such attempts get their own status.
+RATE_LIMIT_RE = re.compile(r"session limit|usage limit|rate.?limit|too many requests|\b429\b|overloaded|"
+                           r"quota|credit balance|resets? (at )?\d", re.I)
+
+
+class AgentUnavailable(RuntimeError):
+    """The agent can't run right now (limit, outage). Stop instead of recording fake failures."""
+
 class Agent:
     """One small interface: run(workdir, prompt, timeout) -> {exit, seconds, cost, tokens}."""
 
@@ -274,6 +283,7 @@ class Agent:
         except OSError as e:
             code, stdout = 127, json.dumps({"error": str(e)})
         res = {"exit": code, "seconds": time.time() - start, "cost": None, "tokens": None, "timeout": code is None}
+        data = {}
         # Agents (and fake agents in tests) can report usage as a JSON object on stdout.
         try:
             data = json.loads(stdout.strip().splitlines()[-1]) if stdout.strip() else {}
@@ -283,6 +293,13 @@ class Agent:
                              + u.get("cache_read_input_tokens", 0) + u.get("cache_creation_input_tokens", 0)) or data.get("tokens")
         except (ValueError, AttributeError, IndexError):
             pass
+        if code is not None:
+            if isinstance(data, dict) and data.get("is_error"):
+                res["agent_error"] = str(data.get("result") or "agent reported an error")[:300]
+            elif code == 127:
+                res["agent_error"] = "command not found or could not start: %s" % (data.get("error", "") if isinstance(data, dict) else "")
+            elif self.kind == "claude" and code != 0:
+                res["agent_error"] = "claude exited with code %s" % code
         return res
 
 
@@ -298,7 +315,13 @@ def run_task(repo, task, agent, timeout, test_timeout, attempt=0, rules=None, va
                 f.write(rules[1])
         env = {"HOMEFIELD_TASK": task["id"], "HOMEFIELD_ATTEMPT": str(attempt), "HOMEFIELD_VARIANT": variant}
         res = agent.run(d, PROMPT.format(message=task["message"]), timeout, env)
-        if res.pop("timeout"):
+        agent_error = res.pop("agent_error", None)
+        if agent_error:
+            if RATE_LIMIT_RE.search(agent_error):
+                raise AgentUnavailable("%s: %s" % (agent.name, agent_error))
+            status = "agent-error"
+            res["error"] = agent_error
+        elif res.pop("timeout"):
             status = "timeout"
         else:
             tests = [tuple(t) for t in task["tests"]]
@@ -310,12 +333,21 @@ def run_task(repo, task, agent, timeout, test_timeout, attempt=0, rules=None, va
 
 # ------------------------------------------------------------------ report
 
+def errored(results):
+    """{agent: n} of attempts where the agent itself failed to run. They are never scored."""
+    return Counter(r["agent"] for r in results if r["status"] == "agent-error")
+
+
 def summarize(results):
-    agents = sorted({r["agent"] for r in results})
+    bad = errored(results)
+    results = [r for r in results if r["status"] != "agent-error"]
+    agents = sorted({r["agent"] for r in results} | set(bad))
     tasks = sorted({r["task"] for r in results})
     rows = []
     for a in agents:
         rs = [r for r in results if r["agent"] == a]
+        if not rs:
+            continue
         solved = sum(r["status"] == "solved" for r in rs)
         costs = [r["cost"] for r in rs if r["cost"] is not None]
         total = round(sum(costs), 2) if costs else None
@@ -331,7 +363,16 @@ def summarize(results):
     return rows, tasks, grid
 
 
-MARK = {"solved": "✅", "failed": "❌", "timeout": "⏱", "test-timeout": "⏱"}
+MARK = {"solved": "✅", "failed": "❌", "timeout": "⏱", "test-timeout": "⏱", "agent-error": "⚠"}
+
+
+def error_banner(results):
+    bad = errored(results)
+    if not bad:
+        return ""
+    return ("> ⚠ **%d attempt(s) never ran** (%s): the agent errored, e.g. a usage limit or a missing CLI. "
+            "They are excluded from every number below. Re-run with `homefield run --resume` to retry them.\n\n" %
+            (sum(bad.values()), ", ".join("`%s` ×%d" % kv for kv in sorted(bad.items()))))
 
 
 def money(x):
@@ -340,7 +381,7 @@ def money(x):
 
 def markdown(results, repo_name=""):
     rows, tasks, grid = summarize(results)
-    out = ["# homefield results%s" % (": " + repo_name if repo_name else ""), "",
+    out = ["# homefield results%s" % (": " + repo_name if repo_name else ""), "", error_banner(results).rstrip(),
            "| Rank | Agent | Solved | Pass rate | Median time | Total cost | Cost / solve |",
            "|---|---|---|---|---|---|---|"]
     for i, r in enumerate(rows, 1):
@@ -376,7 +417,7 @@ def outcomes(results, agent, variant="base"):
     """{task: [1/0 per attempt]} for one agent (and variant)."""
     out = defaultdict(list)
     for r in sorted(results, key=lambda r: (r["task"], r.get("attempt", 0))):
-        if r["agent"] == agent and r.get("variant", "base") == variant:
+        if r["agent"] == agent and r.get("variant", "base") == variant and r["status"] != "agent-error":
             out[r["task"]].append(1 if r["status"] == "solved" else 0)
     return dict(out)
 
@@ -651,9 +692,15 @@ def cmd_ablate(a, out):
 
     def runner(task, agent, attempt, content, variant):
         r = run_task(a.repo, task, agent, a.timeout, a.test_timeout, attempt, (a.rules, content), variant)
+        if r["status"] == "agent-error":   # an unbalanced ablation would blame the rules for an outage
+            raise AgentUnavailable("%s: %s" % (agent.name, r.get("error")))
         return r["status"] == "solved"
 
-    units, report = run_ablation(tasks, agents, text, a.attempts, runner, a.by_section)
+    try:
+        units, report = run_ablation(tasks, agents, text, a.attempts, runner, a.by_section)
+    except AgentUnavailable as e:
+        out.write("\nStopped: %s\nAn ablation with missing runs would be misleading, so nothing was reported.\n" % e)
+        return 3
     md = ablation_markdown(units, report, a.rules)
     out.write(md)
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -720,7 +767,7 @@ def cmd_run(a, out):
     if a.resume and os.path.exists(path):
         with open(path, encoding="utf-8") as f:
             for r in map(json.loads, f):
-                if "meta" not in r:
+                if "meta" not in r and r["status"] != "agent-error":   # errored attempts get retried
                     done.add((r["task"], r["agent"], r.get("attempt", 0), r.get("variant", "base")))
     with open(path, "a" if done else "w", encoding="utf-8") as f:
         if not done:
@@ -731,7 +778,12 @@ def cmd_run(a, out):
                 for k in range(a.attempts):
                     if (t["id"], ag.name, k, "base") in done:
                         continue
-                    r = run_task(a.repo, t, ag, a.timeout, a.test_timeout, attempt=k)
+                    try:
+                        r = run_task(a.repo, t, ag, a.timeout, a.test_timeout, attempt=k)
+                    except AgentUnavailable as e:
+                        out.write("\nStopped: %s\nNothing was scored for that attempt. Fix the cause (wait for the limit to "
+                                  "reset, check the CLI), then continue with: homefield run … --resume --run-id %s\n" % (e, run_id))
+                        return 3
                     f.write(json.dumps(r) + "\n")
                     f.flush()
                     out.write("%-10s %-24s #%d %s\n" % (t["id"], ag.name, k + 1, r["status"]))
