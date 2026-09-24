@@ -123,6 +123,19 @@ The Claude adapter is **edit-only** out of the box (`--permission-mode acceptEdi
 
 `run` now makes **3 attempts per task by default** (it used to make 1). Pass `--attempts 1` for v1 behavior. Old run files still load, and the v1 report table is unchanged, with the new sections added below it.
 
+## Prior art, and what's new here
+
+- **[SWE-bench](https://www.swebench.com/)** established the method: real issues from real repos, graded by the repo's own tests. homefield applies it to *your* repo.
+- **[RepoTrials](https://dev.to/repotrials/repotrials-turn-your-git-history-into-private-coding-agent-benchmarks-4462)** and [commit-replay-bench](https://github.com/Jita81/commit-replay-bench) also turn git history into private benchmarks.
+- **[claude-instruction-ablation](https://github.com/evolsb/claude-instruction-ablation)** scores CLAUDE.md rules with a rubric.
+
+What homefield adds:
+- snapshots with **no reachable future history**
+- **flake-filtered** tasks
+- **paired, task-level statistics** with plain verdicts
+- a **memorization probe**
+- **CLAUDE.md ablation measured by actual solve rates**, with Holm correction and a cost plan up front
+
 <details>
 <summary><b>Development</b></summary>
 
