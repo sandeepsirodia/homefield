@@ -233,8 +233,8 @@ def mine(repo, test_cmd, since=None, limit=50, max_files=10, test_timeout=300, l
 class Agent:
     """One small interface: run(workdir, prompt, timeout) -> {exit, seconds, cost, tokens}."""
 
-    def __init__(self, spec, budget=None, allow_shell=False):
-        self.spec, self.budget, self.allow_shell = spec, budget, allow_shell
+    def __init__(self, spec, budget=None, allow_shell=False, user_settings=False):
+        self.spec, self.budget, self.allow_shell, self.user_settings = spec, budget, allow_shell, user_settings
         name, _, rest = spec.partition("=")
         if rest.startswith("cmd:"):
             self.name, self.kind, self.arg = name, "cmd", rest[4:]
@@ -258,7 +258,10 @@ class Agent:
         if self.kind == "claude":
             # Safe default: the agent may edit files but not run commands. --allow-shell lifts that.
             perms = ["--dangerously-skip-permissions"] if self.allow_shell else ["--permission-mode", "acceptEdits"]
-            cmd = ["claude", "-p", prompt, "--output-format", "json", *perms]
+            # The repo's own project settings / CLAUDE.md apply; your personal user-level hooks and
+            # instructions don't (they'd make results about your setup, not the model). --user-settings opts in.
+            sources = [] if self.user_settings else ["--setting-sources", "project,local"]
+            cmd = ["claude", "-p", prompt, "--output-format", "json", "--no-session-persistence", *perms, *sources]
             if self.arg:
                 cmd += ["--model", self.arg]
             if self.budget:
@@ -452,7 +455,8 @@ def probe_similarity(answer, truth):
 def probe_agent(agent, prompt, timeout):
     """Text-only call: no repo, no tools. Returns the model's answer."""
     if agent.kind == "claude":
-        cmd = ["claude", "-p", prompt, "--tools", "", "--output-format", "json"] + (["--model", agent.arg] if agent.arg else [])
+        cmd = ["claude", "-p", prompt, "--tools", "", "--output-format", "json", "--no-session-persistence",
+               "--setting-sources", ""] + (["--model", agent.arg] if agent.arg else [])
         code, out, _ = run_capped(cmd, tempfile.gettempdir(), timeout)
         try:
             return json.loads(out).get("result", "")
@@ -632,7 +636,7 @@ def cmd_ablate(a, out):
     with open(os.path.join(a.repo, a.rules), encoding="utf-8") as f:
         text = f.read()
     units, _ = split_rules(text, a.by_section)
-    agents = [Agent(s.strip(), a.budget, a.allow_shell) for s in a.agent]
+    agents = [Agent(s.strip(), a.budget, a.allow_shell, a.user_settings) for s in a.agent]
     secs, cost = history_averages(a.repo)
     pl = plan(len(tasks), len(agents), a.attempts, len(units) + 1, secs or a.seconds_per_run,
               cost if cost is not None else a.cost_per_run)
@@ -703,7 +707,7 @@ def cmd_mine(a, out):
 def cmd_run(a, out):
     tasks = [t for t in load_tasks(a.repo) if not (a.exclude_memorized and t.get("memorized"))]
     tasks = tasks[:a.tasks] if a.tasks else tasks
-    agents = [Agent(s.strip(), a.budget, a.allow_shell) for s in a.agent]
+    agents = [Agent(s.strip(), a.budget, a.allow_shell, a.user_settings) for s in a.agent]
     runs_dir = os.path.join(a.repo, HOME_DIR, "runs")
     run_id = a.run_id
     if a.resume and not run_id:
@@ -787,6 +791,8 @@ def main(argv=None, out=None):
     r.add_argument("--allow-shell", action="store_true",
                    help="let the claude agent run any command (bypasses permissions; use inside a container)")
     r.add_argument("--test-timeout", type=int, default=300)
+    r.add_argument("--user-settings", action="store_true",
+                   help="also load your personal ~/.claude settings, hooks and CLAUDE.md (default: repo's own only)")
     r.add_argument("--attempts", type=int, default=3, help="attempts per task and agent (default 3), for pass@k and CIs")
     r.add_argument("--exclude-memorized", action="store_true", help="skip tasks flagged by `homefield probe`")
     r.add_argument("--resume", action="store_true", help="continue the latest (or --run-id) run, skipping finished attempts")
@@ -810,6 +816,7 @@ def main(argv=None, out=None):
     ab.add_argument("--test-timeout", type=int, default=300)
     ab.add_argument("--budget", type=float)
     ab.add_argument("--allow-shell", action="store_true")
+    ab.add_argument("--user-settings", action="store_true")
     ab.add_argument("--seconds-per-run", type=float, help="estimate when there's no previous run to learn from")
     ab.add_argument("--cost-per-run", type=float, help="estimate when there's no previous run to learn from")
     pl = sub.add_parser("plan", help="how many runs, how long, how much, before you spend anything")

@@ -209,7 +209,9 @@ class TestUnits(unittest.TestCase):
         hf.run_capped = lambda cmd, *a, **k: seen.setdefault("cmd", cmd) and (0, "{}", "")
         try:
             hf.Agent("claude").run(tempfile.mkdtemp(), "p", 1)
-            self.assertIn("acceptEdits", seen.pop("cmd"))
+            cmd = seen.pop("cmd")
+            self.assertIn("acceptEdits", cmd)
+            self.assertEqual(cmd[cmd.index("--setting-sources") + 1], "project,local")  # not the user's personal config
             hf.Agent("claude", allow_shell=True).run(tempfile.mkdtemp(), "p", 1)
             self.assertIn("--dangerously-skip-permissions", seen["cmd"])
         finally:
