@@ -21,38 +21,46 @@ Public benchmarks measure public repos. Models have probably seen those repos. *
 
 **homefield turns your own git history into a private benchmark.** Every past commit where someone changed code *and* added a test becomes a task: here's the commit message, make the change. The tests from that commit, hidden until the end, decide who passed.
 
-## What you get
+## A real run: Haiku vs Sonnet on simonw/llm
+
+I mined [simonw/llm](https://github.com/simonw/llm)'s 2026 history: **16 real tasks**, each a commit that added a test the old code fails. 6 more candidates were dropped (flaky, or needing dependency changes). Then I ran two Claude models, one attempt per task:
+
+<p align="center"><img src="assets/llm-haiku-vs-sonnet.svg" alt="Claude Sonnet and Claude Haiku both solved 7 of 16 tasks; Sonnet cost $0.24 per solved task and Haiku $0.90" width="760"></p>
 
 ```console
-$ homefield mine --since 2026-06-01
-Mined 24 task(s) into .homefield/tasks.jsonl
+$ homefield mine --since 2026-02-01 --stability-runs 2
+Mined 16 task(s) into .homefield/tasks.jsonl
+Dropped: reference fails 5, tests pass without the change 1
 
-$ homefield run --agent claude:opus --agent claude:sonnet --agent claude:haiku --budget 2
-$ homefield report --html report.html
+$ homefield run --agent claude:haiku --agent claude:sonnet --attempts 1 --budget 1.0
+$ homefield report
 ```
-
-*Illustrative numbers. Run it on your repo for real ones:*
 
 | Rank | Agent | Solved | Pass rate | Median time | Total cost | Cost / solve |
 |---|---|---|---|---|---|---|
-| 1 | `claude:opus` | 19/24 | 79.2% | 212s | $31.40 | $1.65 |
-| 2 | `claude:sonnet` | 17/24 | 70.8% | 164s | $9.85 | $0.58 |
-| 3 | `claude:haiku` | 11/24 | 45.8% | 71s | $1.92 | $0.17 |
+| 1 | `claude:sonnet` | 7/16 | 43.8% | 23s | $1.65 | $0.24 |
+| 2 | `claude:haiku` | 7/16 | 43.8% | 112s | $6.32 | $0.90 |
 
-A table like this is what you actually need to know. *Is the top model worth 3× the cost per solved task on our code?* Now you can answer that with data instead of a hunch.
+```
+- claude:haiku vs claude:sonnet: no detectable difference (Δ=+0%, 95% CI -19%…+19%, p=1) · McNemar exact over 16 tasks
+```
 
-But look again: 19/24 vs 17/24. **Is that a real difference, or a coin flip?** v2 answers that.
+The "cheap" model wasn't cheap. It tied on solve rate, but it took almost 5× longer per attempt and cost almost 4× more per solved task. That's the kind of thing you only learn on your own code.
+
+Caveats, stated plainly: 16 tasks is small (the interval on the difference is ±19 points), there was one attempt each, and agents ran **edit-only**, so they couldn't run the tests themselves, which is part of why fewer than half were solved. Every task, attempt and cost is in [`examples/simonw-llm/`](examples/simonw-llm/).
 
 ## New in v2: is it better, or did you get lucky?
 
-*Illustrative output:*
+From the real run above:
 
 ```
 ## Head to head
-- `claude:sonnet` vs `claude:opus`: no detectable difference (Δ=-8%, 95% CI -21%…+4%, p=0.31) · paired permutation over tasks
+- `claude:haiku` vs `claude:sonnet`: no detectable difference (Δ=+0%, 95% CI -19%…+19%, p=1) · McNemar exact over 16 tasks
 ```
 
 Every comparison now comes with a paired test, a confidence interval and a plain-English verdict. With one attempt per task it's an exact McNemar test on which tasks each agent solved. With several attempts (the default is 3) it's a paired permutation test that treats *tasks* as the unit. The report names the test it used. I measured why that matters by simulating 500 comparisons of two **identical** agents on 30 tasks:
+
+<p align="center"><img src="assets/false-alarms.svg" alt="Eyeballing crowns a false winner 11.2% of the time; homefield's verdict 2.2%" width="760"></p>
 
 | Rule for "B is better" | How often it crowns a winner between identical agents |
 |---|---|
@@ -80,6 +88,8 @@ Nothing run. Re-run with --yes to start.
 ```
 
 It prints the plan and cost first, and nothing runs until you add `--yes`. Then it removes one rule at a time, reruns your tasks, and labels each rule **load-bearing** (removing it hurts), **harmful** (removing it helps), or **no detectable effect**, with Holm-corrected p-values across rules and the ~token cost each rule adds to every single turn. Your CLAUDE.md is never edited; the report is saved to `.homefield/`.
+
+I haven't run a real ablation yet: 15 variants × 20 tasks × 3 attempts is hundreds of dollars, which is why `ablate` prints the plan first. The method is proven by simulation; real results will be linked here.
 
 "No detectable effect" isn't proof a rule is useless, and the report says so. With few tasks, small effects are invisible. The tests prove the method: in a simulated 6-rule file where one rule helps and one hurts, ablation finds exactly those two.
 

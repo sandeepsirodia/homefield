@@ -381,7 +381,8 @@ def money(x):
 
 def markdown(results, repo_name=""):
     rows, tasks, grid = summarize(results)
-    out = ["# homefield results%s" % (": " + repo_name if repo_name else ""), "", error_banner(results).rstrip(),
+    banner = error_banner(results).rstrip()
+    out = ["# homefield results%s" % (": " + repo_name if repo_name else ""), ""] + ([banner, ""] if banner else []) + [
            "| Rank | Agent | Solved | Pass rate | Median time | Total cost | Cost / solve |",
            "|---|---|---|---|---|---|---|"]
     for i, r in enumerate(rows, 1):
