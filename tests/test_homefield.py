@@ -148,7 +148,8 @@ class TestRun(Base):
         self.assertEqual(status, {"sleepy": "timeout", "solver": "solved"})
 
     def test_e6_report_math(self):
-        cli(self.repo, "run", "--agent", solver(["sub", "mul"]), "--run-id", "e6")
+        # v2 changed the default to 3 attempts; pin 1 so this still checks v1's report math exactly
+        cli(self.repo, "run", "--agent", solver(["sub", "mul"]), "--run-id", "e6", "--attempts", "1")
         rows, tasks, grid = hf.summarize(hf.load_results(self.repo, "e6"))
         self.assertEqual(len(rows), 1)
         r = rows[0]
