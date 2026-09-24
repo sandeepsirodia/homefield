@@ -45,6 +45,8 @@ But look again: 19/24 vs 17/24. **Is that a real difference, or a coin flip?** v
 
 ## New in v2: is it better, or did you get lucky?
 
+*Illustrative output:*
+
 ```
 ## Head to head
 - `claude:sonnet` vs `claude:opus`: no detectable difference (Δ=-8%, 95% CI -21%…+4%, p=0.31) · paired permutation over tasks
@@ -68,7 +70,7 @@ What else v2 adds:
 
 ## Which rules in your CLAUDE.md actually do anything?
 
-Everyone's CLAUDE.md grows. Nobody knows which lines matter. So measure it:
+Everyone's CLAUDE.md grows. Nobody knows which lines matter. So measure it (*illustrative output*):
 
 ```console
 $ homefield ablate CLAUDE.md --agent claude:sonnet --attempts 3
