@@ -96,7 +96,7 @@ I haven't run a real ablation yet: 15 variants × 20 tasks × 3 attempts is hund
 ## Install
 
 ```bash
-uv tool install git+https://github.com/sandeepsirodia/homefield   # or: pipx install git+https://…
+uv tool install homefield   # or: pipx install homefield
 ```
 
 One Python file, zero dependencies. You need `git` and whichever agents you want to pit against each other.
