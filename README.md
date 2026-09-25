@@ -25,7 +25,7 @@ Public benchmarks measure public repos. Models have probably seen those repos. *
 
 I mined [simonw/llm](https://github.com/simonw/llm)'s 2026 history: **16 real tasks**, each a commit that added a test the old code fails. 6 more candidates were dropped (flaky, or needing dependency changes). Then I ran two Claude models, one attempt per task:
 
-<p align="center"><img src="assets/llm-haiku-vs-sonnet.svg" alt="Claude Sonnet and Claude Haiku both solved 7 of 16 tasks; Sonnet cost $0.24 per solved task and Haiku $0.90" width="760"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/sandeepsirodia/homefield/main/assets/llm-haiku-vs-sonnet.svg" alt="Claude Sonnet and Claude Haiku both solved 7 of 16 tasks; Sonnet cost $0.24 per solved task and Haiku $0.90" width="760"></p>
 
 ```console
 $ homefield mine --since 2026-02-01 --stability-runs 2
@@ -60,7 +60,7 @@ From the real run above:
 
 Every comparison now comes with a paired test, a confidence interval and a plain-English verdict. With one attempt per task it's an exact McNemar test on which tasks each agent solved. With several attempts (the default is 3) it's a paired permutation test that treats *tasks* as the unit. The report names the test it used. I measured why that matters by simulating 500 comparisons of two **identical** agents on 30 tasks:
 
-<p align="center"><img src="assets/false-alarms.svg" alt="Eyeballing crowns a false winner 11.2% of the time; homefield's verdict 2.2%" width="760"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/sandeepsirodia/homefield/main/assets/false-alarms.svg" alt="Eyeballing crowns a false winner 11.2% of the time; homefield's verdict 2.2%" width="760"></p>
 
 | Rule for "B is better" | How often it crowns a winner between identical agents |
 |---|---|
